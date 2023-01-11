@@ -5,7 +5,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "./FlatDirectory.sol";
 
-contract SimpleW3box {
+contract SimpleW3boxEVM {
     using Strings for uint256;
 
     struct File {
@@ -22,16 +22,22 @@ contract SimpleW3box {
     FlatDirectory public fileFD;
 
     address public owner;
-    string public gateway = 'https://file.w3q.w3q-g.w3link.io/';
+    string public gateway;
 
     mapping(address => FilesInfo) fileInfos;
 
-    constructor(address memory _fileFD) {
+    constructor(string memory shortName) {
         owner = msg.sender;
-        fileFD = FlatDirectory(_fileFD);
-    }
+        fileFD = new FlatDirectory(0);
 
-    receive() external payable {
+        // https://0x7f87dcea4a43173f57c67cb80d28dbc388ba9ab9.arb-nova.w3link.io/
+        gateway = string(abi.encodePacked(
+                "https://",
+                Strings.toHexString(uint256(uint160(address(fileFD))), 20),
+                ".",
+                shortName,
+                '.w3link.io/'
+            ));
     }
 
     function write(bytes memory name, bytes memory fileType, bytes calldata data) public payable {
@@ -64,11 +70,7 @@ contract SimpleW3box {
         }
         info.files.pop();
         delete info.fileIds[nameHash];
-
-        uint256 id = fileFD.remove(getNewName(msg.sender, name));
-        fileFD.refund();
-        payable(msg.sender).transfer(address(this).balance);
-        return id;
+        return fileFD.remove(getNewName(msg.sender, name));
     }
 
     function getChunkHash(bytes memory name, uint256 chunkId) public view returns (bytes32) {

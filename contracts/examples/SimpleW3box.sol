@@ -72,6 +72,12 @@ contract SimpleW3box is Ownable {
         return id;
     }
 
+    function removes(bytes[] memory names) public {
+        for (uint256 i; i < names.length; i++) {
+            remove(names[i]);
+        }
+    }
+
     function getChunkHash(bytes memory name, uint256 chunkId) public view returns (bytes32) {
         return fileFD.getChunkHash(getNewName(msg.sender, name), chunkId);
     }

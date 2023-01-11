@@ -3,9 +3,10 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "./FlatDirectory.sol";
 
-contract SimpleW3box {
+contract SimpleW3box is Ownable {
     using Strings for uint256;
 
     struct File {
@@ -19,19 +20,17 @@ contract SimpleW3box {
         mapping(bytes32 => uint256) fileIds;
     }
 
+    bool public isRefund = false; // w3q is true
+
     FlatDirectory public fileFD;
-
-    address public owner;
-    string public gateway = 'https://file.w3q.w3q-g.w3link.io/';
-
     mapping(address => FilesInfo) fileInfos;
 
-    constructor(address memory _fileFD) {
-        owner = msg.sender;
-        fileFD = FlatDirectory(_fileFD);
+    constructor() {
+        fileFD = new FlatDirectory(0);
     }
 
-    receive() external payable {
+    function setOldFlatDirectory(address _fileFD) public onlyOwner {
+        fileFD = FlatDirectory(_fileFD);
     }
 
     function write(bytes memory name, bytes memory fileType, bytes calldata data) public payable {
@@ -66,8 +65,10 @@ contract SimpleW3box {
         delete info.fileIds[nameHash];
 
         uint256 id = fileFD.remove(getNewName(msg.sender, name));
-        fileFD.refund();
-        payable(msg.sender).transfer(address(this).balance);
+        if (isRefund) {
+            fileFD.refund();
+            payable(msg.sender).transfer(address(this).balance);
+        }
         return id;
     }
 
@@ -87,30 +88,22 @@ contract SimpleW3box {
         );
     }
 
-    function getUrl(bytes memory name) public view returns (string memory) {
-        return string(abi.encodePacked(gateway, name));
-    }
-
     function getAuthorFiles(address author)
         public view
         returns (
             uint256[] memory times,
             bytes[] memory names,
-            bytes[] memory types,
-            string[] memory urls
+            bytes[] memory types
         )
     {
         uint256 length = fileInfos[author].files.length;
         times = new uint256[](length);
         names = new bytes[](length);
         types = new bytes[](length);
-        urls = new string[](length);
-
         for (uint256 i; i < length; i++) {
             times[i] = fileInfos[author].files[i].time;
             names[i] = fileInfos[author].files[i].name;
             types[i] = fileInfos[author].files[i].fileType;
-            urls[i] = getUrl(getNewName(author, names[i]));
         }
     }
 }

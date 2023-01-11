@@ -40,17 +40,21 @@ contract SimpleW3box {
 
     mapping(address => FilesInfo) fileInfos;
 
-    constructor(string memory _gateway) {
+    constructor(string memory shortName) {
         owner = msg.sender;
-        gateway = _gateway;
         fileFD = new FlatDirectory(0);
+
+        // https://0x7f87dcea4a43173f57c67cb80d28dbc388ba9ab9.arb-nova.w3link.io/
+        gateway = string(abi.encodePacked(
+                "https://",
+                Strings.toHexString(uint256(uint160(address(fileFD))), 20),
+                ".",
+                shortName,
+                '.w3link.io/'
+            ));
     }
 
     receive() external payable {
-    }
-
-    function setGateway(string calldata _gateway) public isOwner {
-        gateway = _gateway;
     }
 
     function write(bytes memory name, bytes memory fileType, bytes calldata data) public payable {
@@ -107,11 +111,7 @@ contract SimpleW3box {
     }
 
     function getUrl(bytes memory name) public view returns (string memory) {
-        return string(abi.encodePacked(
-                gateway,
-                'file.w3q/',
-                name
-            ));
+        return string(abi.encodePacked(gateway, name));
     }
 
     function getAuthorFiles(address author)
@@ -137,4 +137,3 @@ contract SimpleW3box {
         }
     }
 }
-

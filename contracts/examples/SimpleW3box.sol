@@ -29,7 +29,7 @@ contract SimpleW3box is Ownable {
         fileFD = new FlatDirectory(0);
     }
 
-    function setOldFlatDirectory(address _fileFD) public onlyOwner {
+    function setFlatDirectory(address _fileFD) public onlyOwner {
         fileFD = FlatDirectory(_fileFD);
     }
 

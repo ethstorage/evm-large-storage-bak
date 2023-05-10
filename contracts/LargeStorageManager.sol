@@ -1,118 +1,100 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./optimize/SlotHelper.sol";
-import "./StorageHelper.sol";
-import "./StorageSlotSelfDestructable.sol";
+interface EthStorageContract {
+    function putBlob(bytes32 key, uint256 blobIdx, uint256 length) external payable;
+
+    function get(bytes32 key, uint256 off, uint256 len) external view returns (bytes memory);
+
+    function remove(bytes32 key) external;
+}
 
 // Large storage manager to support arbitrarily-sized data with multiple chunk
 contract LargeStorageManager {
-    using SlotHelper for bytes32;
-    using SlotHelper for address;
-
-    uint8 internal immutable SLOT_LIMIT;
-
-    mapping(bytes32 => mapping(uint256 => bytes32)) internal keyToMetadata;
-    mapping(bytes32 => mapping(uint256 => mapping(uint256 => bytes32))) internal keyToSlots;
-
-    constructor(uint8 slotLimit) {
-        SLOT_LIMIT = slotLimit;
+    struct Blob {
+        uint256 idv; // 0 start
+        uint256 length;
+        bytes32 blobKey;
     }
 
-    function isOptimize() public view returns (bool) {
-        return SLOT_LIMIT > 0;
+    struct Chunk {
+        uint256 chunkSize;
+        bytes32 chunkHash;
+        Blob[] blobs;
+    }
+
+    EthStorageContract public storageContract;
+    mapping(bytes32 => Chunk[]) internal keyToChunk;
+
+    constructor(address storageAddress) {
+        storageContract = EthStorageContract(storageAddress);
     }
 
     function _preparePut(bytes32 key, uint256 chunkId) private {
-        bytes32 metadata = keyToMetadata[key][chunkId];
-
-        if (metadata == bytes32(0)) {
-            require(chunkId == 0 || keyToMetadata[key][chunkId - 1] != bytes32(0x0), "must replace or append");
-        }
-
-        if (!metadata.isInSlot()) {
-            address addr = metadata.bytes32ToAddr();
-            if (addr != address(0x0)) {
-                // remove the KV first if it exists
-                StorageSlotSelfDestructable(addr).destruct();
+        require(chunkId <= _countChunks(key), "must replace or append");
+        if (chunkId < _countChunks(key)) {
+            // replace, delete old blob
+            Chunk storage chunk = keyToChunk[key][chunkId];
+            uint256 length = chunk.blobs.length;
+            for (uint8 i = 0; i < length; i++) {
+                storageContract.remove(chunk.blobs[i].blobKey);
             }
-        }
-    }
-
-    function _putChunkFromCalldata(
-        bytes32 key,
-        uint256 chunkId,
-        bytes calldata data,
-        uint256 value
-    ) internal {
-        _preparePut(key, chunkId);
-
-        // store data and rewrite metadata
-        if (data.length > SLOT_LIMIT) {
-            keyToMetadata[key][chunkId] = StorageHelper.putRawFromCalldata(data, value).addrToBytes32();
-        } else {
-            keyToMetadata[key][chunkId] = SlotHelper.putRaw(keyToSlots[key][chunkId], data);
+            delete chunk.blobs;
         }
     }
 
     function _putChunk(
         bytes32 key,
+        uint256 value,
         uint256 chunkId,
-        bytes memory data,
-        uint256 value
+        bytes32 chunkHash,
+        bytes32[] memory blobKeys,
+        uint256[] memory blobLengths
     ) internal {
+        require(blobKeys.length < 3 && blobKeys.length > 0, "invalid blob length");
         _preparePut(key, chunkId);
 
-        // store data and rewrite metadata
-        if (data.length > SLOT_LIMIT) {
-            keyToMetadata[key][chunkId] = StorageHelper.putRaw(data, value).addrToBytes32();
-        } else {
-            keyToMetadata[key][chunkId] = SlotHelper.putRaw(keyToSlots[key][chunkId], data);
+        Chunk storage chunk = keyToChunk[key][chunkId];
+        // put blob
+        uint256 size = 0;
+        uint256 length = blobKeys.length;
+        for (uint8 i = 0; i < length; i++) {
+            storageContract.putBlob(blobKeys[i], i, blobLengths[i]);
+            chunk.blobs.push(Blob(i, blobLengths[i], blobKeys[i]));
+            size += blobLengths[i];
         }
+        chunk.chunkSize = size;
+        chunk.chunkHash = chunkHash;
     }
 
     function _getChunk(bytes32 key, uint256 chunkId) internal view returns (bytes memory, bool) {
-        bytes32 metadata = keyToMetadata[key][chunkId];
-
-        if (metadata.isInSlot()) {
-            bytes memory res = SlotHelper.getRaw(keyToSlots[key][chunkId], metadata);
-            return (res, true);
-        } else {
-            address addr = metadata.bytes32ToAddr();
-            return StorageHelper.getRaw(addr);
+        bytes memory data = new bytes(0);
+        Chunk memory chunk = keyToChunk[key][chunkId];
+        uint256 length = chunk.blobs.length;
+        if (length < 1) {
+            return (data, false);
         }
+
+        for (uint8 i = 0; i < length; i++) {
+            bytes memory temp = storageContract.get(chunk.blobs[i].blobKey, 0, chunk.blobs[i].length);
+            data = bytes.concat(data, temp);
+        }
+        return (data, true);
     }
 
     function _chunkSize(bytes32 key, uint256 chunkId) internal view returns (uint256, bool) {
-        bytes32 metadata = keyToMetadata[key][chunkId];
-
-        if (metadata == bytes32(0)) {
+        if (_countChunks(key) == 0 || chunkId >= _countChunks(key)) {
             return (0, false);
-        } else if (metadata.isInSlot()) {
-            uint256 len = metadata.decodeLen();
-            return (len, true);
-        } else {
-            address addr = metadata.bytes32ToAddr();
-            return StorageHelper.sizeRaw(addr);
         }
+        uint256 size = keyToChunk[key][chunkId].chunkSize;
+        return (size, true);
     }
 
     function _countChunks(bytes32 key) internal view returns (uint256) {
-        uint256 chunkId = 0;
-
-        while (true) {
-            bytes32 metadata = keyToMetadata[key][chunkId];
-            if (metadata == bytes32(0x0)) {
-                break;
-            }
-
-            chunkId++;
-        }
-
-        return chunkId;
+        return keyToChunk[key].length;
     }
 
-    // Returns (size, # of chunks).
+    //     Returns (size, # of chunks).
     function _size(bytes32 key) internal view returns (uint256, uint256) {
         uint256 size = 0;
         uint256 chunkId = 0;
@@ -131,30 +113,18 @@ contract LargeStorageManager {
     }
 
     function _get(bytes32 key) internal view returns (bytes memory, bool) {
-        (uint256 size, uint256 chunkNum) = _size(key);
+        (, uint256 chunkNum) = _size(key);
         if (chunkNum == 0) {
             return (new bytes(0), false);
         }
 
-        bytes memory data = new bytes(size); // solidity should auto-align the memory-size to 32
-        uint256 dataPtr;
-        assembly {
-            dataPtr := add(data, 0x20)
-        }
+        bytes memory data = new bytes(0);
         for (uint256 chunkId = 0; chunkId < chunkNum; chunkId++) {
-            bytes32 metadata = keyToMetadata[key][chunkId];
-
-            uint256 chunkSize = 0;
-            if (metadata.isInSlot()) {
-                chunkSize = metadata.decodeLen();
-                SlotHelper.getRawAt(keyToSlots[key][chunkId], metadata, dataPtr);
-            } else {
-                address addr = metadata.bytes32ToAddr();
-                (chunkSize, ) = StorageHelper.sizeRaw(addr);
-                StorageHelper.getRawAt(addr, dataPtr);
+            (bytes memory temp, bool state) = _getChunk(key, chunkId);
+            if (!state) {
+                break;
             }
-
-            dataPtr += chunkSize;
+            data = bytes.concat(data, temp);
         }
 
         return (data, true);
@@ -162,45 +132,36 @@ contract LargeStorageManager {
 
     // Returns # of chunks deleted
     function _remove(bytes32 key, uint256 chunkId) internal returns (uint256) {
-        while (true) {
-            bytes32 metadata = keyToMetadata[key][chunkId];
-            if (metadata == bytes32(0x0)) {
-                break;
+        require(_countChunks(key) > 0, "the file has no content");
+
+        for (uint256 i = _countChunks(key) - 1; i >= chunkId; i--) {
+            Chunk storage chunk = keyToChunk[key][i];
+            uint256 length = chunk.blobs.length;
+            for (uint8 j = 0; j < length; j++) {
+                storageContract.remove(chunk.blobs[j].blobKey);
             }
-
-            if (!metadata.isInSlot()) {
-                address addr = metadata.bytes32ToAddr();
-                // remove new contract
-                StorageSlotSelfDestructable(addr).destruct();
-            }
-
-            keyToMetadata[key][chunkId] = bytes32(0x0);
-
-            chunkId++;
+            keyToChunk[key].pop();
         }
 
         return chunkId;
     }
 
     function _removeChunk(bytes32 key, uint256 chunkId) internal returns (bool) {
-        bytes32 metadata = keyToMetadata[key][chunkId];
-        if (metadata == bytes32(0x0)) {
-            return false;
+        require(_countChunks(key) - 1 == chunkId, "only the last chunk can be removed");
+
+        Chunk storage chunk = keyToChunk[key][chunkId];
+        uint256 length = chunk.blobs.length;
+        for (uint8 i = 0; i < length; i++) {
+            storageContract.remove(chunk.blobs[i].blobKey);
         }
-
-        if (keyToMetadata[key][chunkId + 1] != bytes32(0x0)) {
-            // only the last chunk can be removed
-            return false;
-        }
-
-        if (!metadata.isInSlot()) {
-            address addr = metadata.bytes32ToAddr();
-            // remove new contract
-            StorageSlotSelfDestructable(addr).destruct();
-        }
-
-        keyToMetadata[key][chunkId] = bytes32(0x0);
-
+        keyToChunk[key].pop();
         return true;
+    }
+
+    function _chunkHash(bytes32 key, uint256 chunkId) internal view returns (bytes32) {
+        if(_countChunks(key) == 0 || chunkId >= _countChunks(key)) {
+            return bytes32(0);
+        }
+        return keyToChunk[key][chunkId].chunkHash;
     }
 }

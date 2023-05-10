@@ -19,7 +19,8 @@ contract ERC5018 is IERC5018, LargeStorageManager {
     // Large storage methods
     function write(bytes memory name, bytes32 dataHash, bytes32[] memory blobKeys, uint256[] memory blobLengths) public payable virtual override {
         require(msg.sender == owner, "must from owner");
-        return _putChunk(keccak256(name), msg.value, 0, dataHash, blobKeys, blobLengths);
+        _putChunk(keccak256(name), msg.value, 0, dataHash, blobKeys, blobLengths);
+        refund();
     }
 
     function read(bytes memory name) public view virtual override returns (bytes memory, bool) {
@@ -48,7 +49,8 @@ contract ERC5018 is IERC5018, LargeStorageManager {
         uint256[] memory blobLengths
     ) public payable virtual override {
         require(msg.sender == owner, "must from owner");
-        return _putChunk(keccak256(name), msg.value, chunkId, chunkHash, blobKeys, blobLengths);
+        _putChunk(keccak256(name), msg.value, chunkId, chunkHash, blobKeys, blobLengths);
+        refund();
     }
 
     function readChunk(bytes memory name, uint256 chunkId) public view virtual override returns (bytes memory, bool) {

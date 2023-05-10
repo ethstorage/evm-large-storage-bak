@@ -7,6 +7,8 @@ interface EthStorageContract {
     function get(bytes32 key, uint256 off, uint256 len) external view returns (bytes memory);
 
     function remove(bytes32 key) external;
+
+    function upfrontPayment() external view returns (uint256);
 }
 
 // Large storage manager to support arbitrarily-sized data with multiple chunk
@@ -52,6 +54,9 @@ contract LargeStorageManager {
         uint256[] memory blobLengths
     ) internal {
         require(blobKeys.length < 3 && blobKeys.length > 0, "invalid blob length");
+        uint256 cost = storageContract.upfrontPayment();
+        require(value >= cost * blobKeys.length, "insufficient balance");
+
         _preparePut(key, chunkId);
 
         Chunk storage chunk = keyToChunk[key][chunkId];
@@ -59,7 +64,7 @@ contract LargeStorageManager {
         uint256 size = 0;
         uint256 length = blobKeys.length;
         for (uint8 i = 0; i < length; i++) {
-            storageContract.putBlob(blobKeys[i], i, blobLengths[i]);
+            storageContract.putBlob{value: cost}(blobKeys[i], i, blobLengths[i]);
             chunk.blobs.push(Blob(i, blobLengths[i], blobKeys[i]));
             size += blobLengths[i];
         }
@@ -163,5 +168,9 @@ contract LargeStorageManager {
             return bytes32(0);
         }
         return keyToChunk[key][chunkId].chunkHash;
+    }
+
+    function upfrontPayment() public view virtual returns (uint256) {
+        return storageContract.upfrontPayment();
     }
 }

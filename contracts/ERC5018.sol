@@ -7,7 +7,7 @@ import "./LargeStorageManager.sol";
 contract ERC5018 is IERC5018, LargeStorageManager {
     address public owner;
 
-    constructor(address storageAddress) LargeStorageManager(storageAddress) {
+    constructor(uint8 slotLimit) LargeStorageManager(slotLimit) {
         owner = msg.sender;
     }
 
@@ -17,10 +17,10 @@ contract ERC5018 is IERC5018, LargeStorageManager {
     }
 
     // Large storage methods
-    function write(bytes memory name, bytes32 dataHash, bytes32[] memory blobKeys, uint256[] memory blobLengths) public payable virtual override {
+    function write(bytes memory name, bytes calldata data) public payable virtual override {
         require(msg.sender == owner, "must from owner");
-        _putChunk(keccak256(name), msg.value, 0, dataHash, blobKeys, blobLengths);
-        refund();
+        // TODO: support multiple chunks
+        return _putChunkFromCalldata(keccak256(name), 0, data, msg.value);
     }
 
     function read(bytes memory name) public view virtual override returns (bytes memory, bool) {
@@ -44,13 +44,10 @@ contract ERC5018 is IERC5018, LargeStorageManager {
     function writeChunk(
         bytes memory name,
         uint256 chunkId,
-        bytes32 chunkHash,
-        bytes32[] memory blobKeys,
-        uint256[] memory blobLengths
+        bytes calldata data
     ) public payable virtual override {
         require(msg.sender == owner, "must from owner");
-        _putChunk(keccak256(name), msg.value, chunkId, chunkHash, blobKeys, blobLengths);
-        refund();
+        return _putChunkFromCalldata(keccak256(name), chunkId, data, msg.value);
     }
 
     function readChunk(bytes memory name, uint256 chunkId) public view virtual override returns (bytes memory, bool) {
@@ -81,7 +78,8 @@ contract ERC5018 is IERC5018, LargeStorageManager {
         selfdestruct(payable(owner));
     }
 
-    function getChunkHash(bytes memory name, uint256 chunkId) public view returns (bytes32) {
-        return _chunkHash(keccak256(name), chunkId);
+    function getChunkHash(bytes memory name, uint256 chunkId) public override view returns (bytes32) {
+        (bytes memory localData,) = readChunk(name, chunkId);
+        return keccak256(localData);
     }
 }

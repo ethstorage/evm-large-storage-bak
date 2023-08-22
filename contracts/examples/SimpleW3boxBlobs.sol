@@ -101,6 +101,13 @@ contract SimpleW3box {
         return id;
     }
 
+    function removes(address author, bytes[] memory names) public {
+        uint256 length = names.length;
+        for (uint8 i = 0; i < length; i++) {
+            remove(author, names[i]);
+        }
+    }
+
     function getChunkHash(address author, bytes memory name, uint256 chunkId) public view returns (bytes32) {
         return fileFD.getChunkHash(getNewName(author, name), chunkId);
     }

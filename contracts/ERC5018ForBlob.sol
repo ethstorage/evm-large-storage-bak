@@ -7,7 +7,7 @@ import "./IERC5018ForBlob.sol";
 interface EthStorageContract {
     function putBlob(bytes32 key, uint256 blobIdx, uint256 length) external payable;
 
-    function get(bytes32 key, uint256 off, uint256 len) external view returns (bytes memory);
+    function get(bytes32 key, bool needDecode, uint256 off, uint256 len) external view returns (bytes memory);
 
     function remove(bytes32 key) external;
 
@@ -57,17 +57,17 @@ contract ERC5018ForBlob is IERC5018ForBlob, Ownable {
         return (size_, chunkId_);
     }
 
-    function _getChunk(bytes32 key, uint256 chunkId) internal view returns (bytes memory, bool) {
+    function _getChunk(bytes32 key, bool needDecode, uint256 chunkId) internal view returns (bytes memory, bool) {
         (uint256 length,) = _chunkSize(key, chunkId);
         if (length < 1) {
             return (new bytes(0), false);
         }
 
-        bytes memory data = storageContract.get(keyToChunk[key][chunkId], 0, length);
+        bytes memory data = storageContract.get(keyToChunk[key][chunkId], needDecode, 0, length);
         return (data, true);
     }
 
-    function _get(bytes32 key) internal view returns (bytes memory, bool) {
+    function _get(bytes32 key, bool needDecode) internal view returns (bytes memory, bool) {
         (uint256 fileSize, uint256 chunkNum) = _size(key);
         if (chunkNum == 0) {
             return (new bytes(0), false);
@@ -78,7 +78,7 @@ contract ERC5018ForBlob is IERC5018ForBlob, Ownable {
         for (uint256 chunkId = 0; chunkId < chunkNum; chunkId++) {
             bytes32 chunkKey = keyToChunk[key][chunkId];
             uint256 length = chunkSizes[chunkKey];
-            storageContract.get(chunkKey, 0, length);
+            storageContract.get(chunkKey, needDecode, 0, length);
 
             assembly {
                 returndatacopy(add(add(concatenatedData, offset), 0x20), 0x40, length)
@@ -148,8 +148,8 @@ contract ERC5018ForBlob is IERC5018ForBlob, Ownable {
 
 
     // interface methods
-    function read(bytes memory name) public view override returns (bytes memory, bool) {
-        return _get(keccak256(name));
+    function read(bytes memory name, bool needDecode) public view override returns (bytes memory, bool) {
+        return _get(keccak256(name), needDecode);
     }
 
     function size(bytes memory name) public view override returns (uint256, uint256) {
@@ -164,8 +164,8 @@ contract ERC5018ForBlob is IERC5018ForBlob, Ownable {
         return _countChunks(keccak256(name));
     }
 
-    function readChunk(bytes memory name, uint256 chunkId) public view override returns (bytes memory, bool) {
-        return _getChunk(keccak256(name), chunkId);
+    function readChunk(bytes memory name, bool needDecode, uint256 chunkId) public view override returns (bytes memory, bool) {
+        return _getChunk(keccak256(name), needDecode, chunkId);
     }
 
     function chunkSize(bytes memory name, uint256 chunkId) public view override returns (uint256, bool) {

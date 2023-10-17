@@ -22,9 +22,9 @@ contract FlatDirectoryFroBlob is ERC5018ForBlob {
         }
 
         if (pathinfo[pathinfo.length - 1] == 0x2f) {
-            (content, ) = read(bytes.concat(pathinfo[1:], defaultFile));
+            (content,) = read(bytes.concat(pathinfo[1 :], defaultFile), true);
         } else {
-            (content, ) = read(pathinfo[1:]);
+            (content,) = read(pathinfo[1 :], true);
         }
 
         returnBytesInplace(content);
@@ -37,7 +37,7 @@ contract FlatDirectoryFroBlob is ERC5018ForBlob {
         assembly {
         // (DATA CORRUPTION): the caller method must be "external returns (bytes)", cannot be public!
             mstore(sub(content, 0x20), 0x20)
-            return(sub(content, 0x20), size)
+            return (sub(content, 0x20), size)
         }
     }
 

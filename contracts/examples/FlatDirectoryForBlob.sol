@@ -22,9 +22,9 @@ contract FlatDirectoryFroBlob is ERC5018ForBlob {
         }
 
         if (pathinfo[pathinfo.length - 1] == 0x2f) {
-            (content,) = read(bytes.concat(pathinfo[1 :], defaultFile), true);
+            (content,) = read(bytes.concat(pathinfo[1 :], defaultFile), DecodeType.PaddingPer31Bytes);
         } else {
-            (content,) = read(pathinfo[1 :], true);
+            (content,) = read(pathinfo[1 :], DecodeType.PaddingPer31Bytes);
         }
 
         returnBytesInplace(content);

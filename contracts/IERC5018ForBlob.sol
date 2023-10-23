@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+enum DecodeType {
+    RawData,
+    PaddingPer31Bytes
+}
+
 interface IERC5018ForBlob {
 
-    function read(bytes memory name, bool needDecode) external view returns (bytes memory, bool);
+    function read(bytes memory name, DecodeType decodeType) external view returns (bytes memory, bool);
 
     // return (size, # of chunks)
     function size(bytes memory name) external view returns (uint256, uint256);
@@ -12,7 +17,7 @@ interface IERC5018ForBlob {
 
     function countChunks(bytes memory name) external view returns (uint256);
 
-    function readChunk(bytes memory name, bool needDecode, uint256 chunkId) external view returns (bytes memory, bool);
+    function readChunk(bytes memory name, DecodeType decodeType, uint256 chunkId) external view returns (bytes memory, bool);
 
     function chunkSize(bytes memory name, uint256 chunkId) external view returns (uint256, bool);
 

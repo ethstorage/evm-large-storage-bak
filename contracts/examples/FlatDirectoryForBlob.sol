@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 
 import "../ERC5018ForBlob.sol";
 
-contract FlatDirectoryFroBlob is ERC5018ForBlob {
+contract FlatDirectoryForBlob is ERC5018ForBlob {
     bytes public defaultFile = "";
 
     function resolveMode() external pure virtual returns (bytes32) {

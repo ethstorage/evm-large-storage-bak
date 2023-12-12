@@ -69,6 +69,12 @@ contract SimpleW3box {
         fileFD.writeChunk{value: msg.value}(getNewName(msg.sender, name), chunkId, data);
     }
 
+    function removes(bytes[] memory names) public {
+        for (uint256 i; i < names.length; i++) {
+            remove(names[i]);
+        }
+    }
+
     function remove(bytes memory name) public returns (uint256) {
         bytes32 nameHash = keccak256(name);
         FilesInfo storage info = fileInfos[msg.sender];

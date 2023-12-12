@@ -3,24 +3,11 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "./FlatDirectory.sol";
 
-contract SimpleW3box {
+contract SimpleW3box is Ownable {
     using Strings for uint256;
-
-    // event for EVM logging
-    event OwnerSet(address indexed oldOwner, address indexed newOwner);
-
-    // modifier to check if caller is owner
-    modifier isOwner() {
-        // If the first argument of 'require' evaluates to 'false', execution terminates and all
-        // changes to the state and to Ether balances are reverted.
-        // This used to consume all gas in old EVM versions, but not anymore.
-        // It is often a good idea to use 'require' to check if functions are called correctly.
-        // As a second argument, you can also provide an explanation about what went wrong.
-        require(msg.sender == owner, "Caller is not owner");
-        _;
-    }
 
     struct File {
         uint256 time;
@@ -33,24 +20,17 @@ contract SimpleW3box {
         mapping(bytes32 => uint256) fileIds;
     }
 
+    bool public isRefund = false; // w3q is true
+
     FlatDirectory public fileFD;
-
-    address public owner;
-    string public gateway;
-
     mapping(address => FilesInfo) fileInfos;
 
-    constructor(string memory _gateway) {
-        owner = msg.sender;
-        gateway = _gateway;
+    constructor() {
         fileFD = new FlatDirectory(0);
     }
 
-    receive() external payable {
-    }
-
-    function setGateway(string calldata _gateway) public isOwner {
-        gateway = _gateway;
+    function setFlatDirectory(address _fileFD) public onlyOwner {
+        fileFD = FlatDirectory(_fileFD);
     }
 
     function write(bytes memory name, bytes memory fileType, bytes calldata data) public payable {
@@ -91,9 +71,17 @@ contract SimpleW3box {
         delete info.fileIds[nameHash];
 
         uint256 id = fileFD.remove(getNewName(msg.sender, name));
-        fileFD.refund();
-        payable(msg.sender).transfer(address(this).balance);
+        if (isRefund) {
+            fileFD.refund();
+            payable(msg.sender).transfer(address(this).balance);
+        }
         return id;
+    }
+
+    function removes(bytes[] memory names) public {
+        for (uint256 i; i < names.length; i++) {
+            remove(names[i]);
+        }
     }
 
     function getChunkHash(bytes memory name, uint256 chunkId) public view returns (bytes32) {
@@ -112,35 +100,22 @@ contract SimpleW3box {
         );
     }
 
-    function getUrl(bytes memory name) public view returns (string memory) {
-        return string(abi.encodePacked(
-                gateway,
-                'file.w3q/',
-                name
-            ));
-    }
-
     function getAuthorFiles(address author)
         public view
         returns (
             uint256[] memory times,
             bytes[] memory names,
-            bytes[] memory types,
-            string[] memory urls
+            bytes[] memory types
         )
     {
         uint256 length = fileInfos[author].files.length;
         times = new uint256[](length);
         names = new bytes[](length);
         types = new bytes[](length);
-        urls = new string[](length);
-
         for (uint256 i; i < length; i++) {
             times[i] = fileInfos[author].files[i].time;
             names[i] = fileInfos[author].files[i].name;
             types[i] = fileInfos[author].files[i].fileType;
-            urls[i] = getUrl(getNewName(author, names[i]));
         }
     }
 }
-

@@ -22,9 +22,9 @@ contract FlatDirectoryForBlob is ERC5018ForBlob {
         }
 
         if (pathinfo[pathinfo.length - 1] == 0x2f) {
-            (content,) = read(bytes.concat(pathinfo[1 :], defaultFile), DecodeType.PaddingPer31Bytes);
+            (content,) = read(bytes.concat(pathinfo[1 :], defaultFile));
         } else {
-            (content,) = read(pathinfo[1 :], DecodeType.PaddingPer31Bytes);
+            (content,) = read(pathinfo[1 :]);
         }
 
         returnBytesInplace(content);

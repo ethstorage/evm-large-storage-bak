@@ -27,6 +27,4 @@ interface IERC5018ForBlob {
     function getChunkHash(bytes memory name, uint256 chunkId) external view returns (bytes32);
 
     function writeChunk(bytes memory name, uint256[] memory chunkIds, uint256[] memory sizes) external payable;
-
-    function upfrontPayment() external view returns (uint256);
 }

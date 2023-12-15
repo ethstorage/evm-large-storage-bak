@@ -4,14 +4,17 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./IERC5018ForBlob.sol";
 
+enum DecodeType {
+    RawData,
+    PaddingPer31Bytes
+}
+
 interface EthStorageContract {
     function putBlob(bytes32 key, uint256 blobIdx, uint256 length) external payable;
 
-    function get(bytes32 key, uint256 off, uint256 len) external view returns (bytes memory);
+    function get(bytes32 key, DecodeType decodeType, uint256 off, uint256 len) external view returns (bytes memory);
 
     function remove(bytes32 key) external;
-
-    function size(bytes32 key) external view returns (uint256);
 
     function hash(bytes32 key) external view returns (bytes24);
 
@@ -20,9 +23,13 @@ interface EthStorageContract {
 
 contract ERC5018ForBlob is IERC5018ForBlob, Ownable {
 
+    uint32 BLOB_SIZE = 4096 * 32;
+    uint32 DECODE_BLOB_SIZE = 4096 * 31;
+
     EthStorageContract public storageContract;
 
     mapping(bytes32 => bytes32[]) internal keyToChunk;
+    mapping(bytes32 => uint256) internal chunkSizes;
 
     function setEthStorageContract(address storageAddress) public onlyOwner {
         storageContract = EthStorageContract(storageAddress);
@@ -36,8 +43,8 @@ contract ERC5018ForBlob is IERC5018ForBlob, Ownable {
         if (chunkId >= _countChunks(key)) {
             return (0, false);
         }
-        uint256 size_ = storageContract.size(keyToChunk[key][chunkId]);
-        return (size_, true);
+        bytes32 chunkKey = keyToChunk[key][chunkId];
+        return (chunkSizes[chunkKey], true);
     }
 
     function _size(bytes32 key) internal view returns (uint256, uint256) {
@@ -61,26 +68,30 @@ contract ERC5018ForBlob is IERC5018ForBlob, Ownable {
             return (new bytes(0), false);
         }
 
-        bytes memory data = storageContract.get(keyToChunk[key][chunkId], 0, length);
+        bytes memory data = storageContract.get(keyToChunk[key][chunkId], DecodeType.PaddingPer31Bytes, 0, length);
         return (data, true);
     }
 
     function _get(bytes32 key) internal view returns (bytes memory, bool) {
-        (, uint256 chunkNum) = _size(key);
+        (uint256 fileSize, uint256 chunkNum) = _size(key);
         if (chunkNum == 0) {
             return (new bytes(0), false);
         }
 
-        bytes memory data = new bytes(0);
+        bytes memory concatenatedData = new bytes(fileSize);
+        uint256 offset = 0;
         for (uint256 chunkId = 0; chunkId < chunkNum; chunkId++) {
-            (bytes memory temp, bool state) = _getChunk(key, chunkId);
-            if (!state) {
-                break;
+            bytes32 chunkKey = keyToChunk[key][chunkId];
+            uint256 length = chunkSizes[chunkKey];
+            storageContract.get(chunkKey, DecodeType.PaddingPer31Bytes, 0, length);
+
+            assembly {
+                returndatacopy(add(add(concatenatedData, offset), 0x20), 0x40, length)
             }
-            data = bytes.concat(data, temp);
+            offset += length;
         }
 
-        return (data, true);
+        return (concatenatedData, true);
     }
 
     function _removeChunk(bytes32 key, uint256 chunkId) internal returns (bool) {
@@ -123,11 +134,11 @@ contract ERC5018ForBlob is IERC5018ForBlob, Ownable {
         require(msg.value >= cost * length, "insufficient balance");
 
         for (uint8 i = 0; i < length; i++) {
-            require(sizes[i] <= 4096 * 31, "invalid blob length");
+            require(sizes[i] <= DECODE_BLOB_SIZE, "invalid chunk length");
             _preparePut(key, chunkIds[i]);
 
             bytes32 chunkKey = keccak256(abi.encode(msg.sender, block.timestamp, chunkIds[i], i));
-            storageContract.putBlob{value : cost}(chunkKey, i, sizes[i]);
+            storageContract.putBlob{value : cost}(chunkKey, i, BLOB_SIZE);
             if (chunkIds[i] < _countChunks(key)) {
                 // replace
                 keyToChunk[key][chunkIds[i]] = chunkKey;
@@ -135,6 +146,7 @@ contract ERC5018ForBlob is IERC5018ForBlob, Ownable {
                 // add
                 keyToChunk[key].push(chunkKey);
             }
+            chunkSizes[chunkKey] = sizes[i];
         }
     }
 
@@ -195,7 +207,7 @@ contract ERC5018ForBlob is IERC5018ForBlob, Ownable {
         refund();
     }
 
-    function upfrontPayment() external override view returns (uint256) {
+    function upfrontPayment() external view returns (uint256) {
         return storageContract.upfrontPayment();
     }
 }
